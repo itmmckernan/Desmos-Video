@@ -7,14 +7,17 @@ import json
 import http.server
 import socketserver
 import webbrowser
+import asyncio
+
 
 colorDivs = 5
-fps = 10
+fps = 5
 slowDownFactor = 4
 port = 42069
 
-youtubeUrl = input('Give a youtube link: ').strip()
-#youtubeUrl = 'https://www.youtube.com/watch?v=-5I24Hr0sWY'
+magicNumber = '\x68\x74\x74\x70\x73\x3a\x2f\x2f\x77\x77\x77\x2e\x79\x6f\x75\x74\x75\x62\x65\x2e\x63\x6f\x6d\x2f\x77' \
+              '\x61\x74\x63\x68\x3f\x76\x3d\x54\x74\x37\x62\x7a\x78\x75\x72\x4a\x31\x49'
+
 if os.path.exists('video.mp4'):
     os.remove('video.mp4')
 
@@ -25,9 +28,9 @@ ydl_opts = {
     'format': 'mp4'
 }
 with youtube_dl.YoutubeDL(ydl_opts) as ydl:
-    ydl.download([youtubeUrl])
+    ydl.download([magicNumber])
 
-ffmpeg.input('video.mp4').video.filter('fps', fps=fps).trim(start=0, end=10).output('lowFPS.mp4').run()
+ffmpeg.input('video.mp4').video.filter('fps', fps=fps).trim(start=0, end=15).output('lowFPS.mp4').run()
 
 videoInput = cv.VideoCapture('lowFPS.mp4')
 commandOutput = {
@@ -35,7 +38,7 @@ commandOutput = {
 }
 frameSize = []
 while videoInput.isOpened():
-    ret, frame = videoInput.read()
+    ret, frame = videoInput.read()  
     if not ret:
         break
     print("frame")
@@ -52,7 +55,7 @@ while videoInput.isOpened():
     for i, color in enumerate(colors):
         singleChannel = cv.inRange(labels, i, i)
         contours, hierarchy = cv.findContours(singleChannel, cv.RETR_TREE, cv.CHAIN_APPROX_TC89_L1)
-        contours = [a for a in contours if cv.contourArea(a) != np.prod(frame.shape[:-1]) and len(a) > 2 and cv.contourArea(a) > np.prod(frame.shape[:-1])*len(contours)*colorDivs/80000]
+        contours = [a for a in contours if cv.contourArea(a) != np.prod(frame.shape[:-1]) and len(a) > 2 and cv.contourArea(a) > np.prod(frame.shape[:-1])*len(contours)*colorDivs/120000]
         contourList.append([contours, np.floor(color).astype(np.uint8)])
     frameCommands = []
     for i, contourGroup in enumerate(contourList):
@@ -63,28 +66,6 @@ while videoInput.isOpened():
                    'color': "#{0:02x}{1:02x}{2:02x}".format(contourGroup[1][2], contourGroup[1][1], contourGroup[1][0]),
                    'fillOpacity': 1}
             frameCommands.append(out)
+    frameCommands = sorted(frameCommands, key=len, reverse=True)
     commandOutput['frames'].append(frameCommands)
 videoInput.release()
-
-scriptString = """var elt = document.getElementById('calculator');
-var calculator = Desmos.GraphingCalculator(elt);
-calculator.setMathBounds({{left:0, bottom: 0, right: {}, top: {}}});
-var commandObj = {};
-var frameInterval = {};
-for(var i = 0; i < commandObj.frames.length; i++){{
-setTimeout(setNClear, frameInterval*i, commandObj.frames[i]);
-}}
-function setNClear(frames){{
-calculator.removeExpressions(calculator.getExpressions());
-calculator.setExpressions(frames);
-}}""".format(frameSize[1], frameSize[0], json.dumps(commandOutput), (1000 // fps)*slowDownFactor)
-
-with open("main.js", "w") as f_output:
-    f_output.write(scriptString)
-
-
-handler = http.server.SimpleHTTPRequestHandler
-print("Server Up")
-webbrowser.open('http://127.0.0.1:{}/fullscreen.html'.format(port))
-with socketserver.TCPServer(("", port), handler) as httpd:
-    httpd.serve_forever()
